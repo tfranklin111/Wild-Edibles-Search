@@ -1,0 +1,11 @@
+import pandas as pd
+
+# Load the CSV file
+file_path = '/Users/someone/Downloads/Untitled.csv'
+data = pd.read_csv(file_path)
+
+# Extract the column into a list
+plant_list = data.iloc[:, 0].tolist()
+
+# Print the list to verify
+print(plant_list)
