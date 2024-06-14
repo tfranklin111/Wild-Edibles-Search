@@ -1,0 +1,95 @@
+import requests
+from Plantlist import KNOWN_EDIBLE_PLANTS
+from concurrent.futures import ThreadPoolExecutor
+
+OPENCAGE_API_KEY = ''
+PLANT_TAXON_ID = 47126  # Taxon ID for the Plantae kingdom
+
+
+# Function to get latitude and longitude for a city
+def get_lat_lng(city_name):
+    url = f'https://api.opencagedata.com/geocode/v1/json?q={city_name}&key={OPENCAGE_API_KEY}'
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+        if data['results']:
+            return data['results'][0]['geometry']['lat'], data['results'][0]['geometry']['lng']
+    return None, None
+
+
+# Function to reverse geocode latitude and longitude to a readable address
+def reverse_geocode(lat, lng):
+    url = f'https://api.opencagedata.com/geocode/v1/json?q={lat}+{lng}&key={OPENCAGE_API_KEY}'
+    response = requests.get(url)
+    if response.status_code == 200:
+        data = response.json()
+        if data['results']:
+            return data['results'][0]['formatted']
+    return "Unknown location"
+
+
+# Function to get observations from iNaturalist based on a location
+def get_inaturalist_observations(latitude, longitude):
+    url = "https://api.inaturalist.org/v1/observations"
+    params = {
+        "lat": latitude,
+        "lng": longitude,
+        "radius": 10,  # Search within a 10 mile radius
+        "taxon_id": PLANT_TAXON_ID,  # Filter for plants
+        "per_page": 50,  # Increase per_page to get more results
+    }
+    response = requests.get(url, params=params)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        return None
+
+
+def find_edibles_in_city(city):
+    latitude, longitude = get_lat_lng(city)
+    if latitude is None or longitude is None:
+        print(f"Could not find coordinates for {city}")
+        return
+
+    observations = get_inaturalist_observations(latitude, longitude)
+
+    if observations:
+        species_dict = {}
+        print(f"Wild edibles found within 10 miles of {city}:")
+        edible_plants_set = set(KNOWN_EDIBLE_PLANTS)  # Convert to set for faster lookup
+
+        with ThreadPoolExecutor() as executor:
+            futures = []
+            for observation in observations['results']:
+                species_name = observation['taxon']['name']
+                common_name = observation['taxon'].get('preferred_common_name', 'No common name')
+                location = observation['location'].split(',')
+                lat, lng = float(location[0]), float(location[1])
+                readable_location = reverse_geocode(lat, lng)
+                wikipedia_url = observation['taxon'].get('wikipedia_url', 'No Wikipedia entry')
+
+                if species_name in edible_plants_set or common_name in edible_plants_set:
+                    if species_name not in species_dict:
+                        species_dict[species_name] = {
+                            "common_name": common_name,
+                            "locations": set(),
+                            "wikipedia_url": wikipedia_url,
+                            "nutritional_info": None
+                        }
+
+                    species_dict[species_name]["locations"].add(readable_location)
+
+        for species_name, details in species_dict.items():
+            print(f"\nSpecies: {species_name} (Common name: {details['common_name']})")
+            print("Locations:")
+            for location in details['locations']:
+                print(f"  - {location}")
+            print(f"More information on {species_name}: {details['wikipedia_url']}")
+            if details["nutritional_info"]:
+                print(f"Nutritional Info for {species_name}:")
+                print(details["nutritional_info"])
+
+
+# Taking city as input
+city = input("Enter the city: ")
+find_edibles_in_city(city)
